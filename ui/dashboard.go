@@ -45,6 +45,20 @@ var (
 	helpStyle = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#626262")).
 		MarginTop(1)
+
+	// Sidebar navigation styles
+	sidebarStyle = lipgloss.NewStyle().
+		Width(20).
+		Foreground(lipgloss.Color("#ADB5BD")).
+		PaddingLeft(1).
+		PaddingRight(1)
+	activeSidebarStyle = lipgloss.NewStyle().
+		Width(20).
+		Bold(true).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#383838")).
+		PaddingLeft(1).
+		PaddingRight(1)
 )
 
 // Dashboard represents the main dashboard view
@@ -59,7 +73,7 @@ type Dashboard struct {
 // NewDashboard creates a new dashboard
 func NewDashboard() Dashboard {
 	return Dashboard{
-		tabs:      []string{"System", "CPU", "Memory", "Disk", "Network", "Processes", "Alerts"},
+		tabs:      []string{"System", "CPU", "Memory", "Disk", "Network", "Processes", "Alerts", "All"},
 		activeTab: 0,
 		help:      help.New(),
 	}
@@ -99,6 +113,19 @@ func (d *Dashboard) FormatTabs() string {
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
+}
+
+// FormatSidebar renders sidebar navigation with the current active section
+func (d *Dashboard) FormatSidebar() string {
+	var items []string
+	for i, t := range d.tabs {
+		if i == d.activeTab {
+			items = append(items, activeSidebarStyle.Render(t))
+		} else {
+			items = append(items, sidebarStyle.Render(t))
+		}
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, items...)
 }
 
 // RenderProgress creates a visual progress bar

@@ -74,10 +74,14 @@ func (d *Dashboard) CPUView(metrics *system.Collector) string {
 			metrics.CPU.LoadAvg.Load5,
 			metrics.CPU.LoadAvg.Load15)
 	}
-	
-	// CPU temperature if available
-	if metrics.CPU.Temperature > 0 {
-		content += fmt.Sprintf("\n--- CPU Temperature ---\n")
+
+	// CPU temperature section (always shown)
+	content += fmt.Sprintf("\n--- CPU Temperature ---\n")
+	if metrics.CPU.Temperature <= 0 {
+		content += "Temperature: N/A\n"
+	} else {
+		// Real-time temperature gauge
+		content += RenderProgress("Temp", metrics.CPU.Temperature, width) + "\n"
 		tempStyle := normalValueStyle
 		if metrics.CPU.Temperature > 70 {
 			tempStyle = warnValueStyle
@@ -85,10 +89,9 @@ func (d *Dashboard) CPUView(metrics *system.Collector) string {
 		if metrics.CPU.Temperature > 85 {
 			tempStyle = criticalValueStyle
 		}
-		content += fmt.Sprintf("Temperature: %s\n", 
-			tempStyle.Render(fmt.Sprintf("%.1f°C", metrics.CPU.Temperature)))
+		content += fmt.Sprintf("Temperature: %s\n", tempStyle.Render(fmt.Sprintf("%.1f°C", metrics.CPU.Temperature)))
 	}
-	
+
 	return infoSectionStyle.Width(width).Render(content)
 }
 
@@ -401,6 +404,37 @@ func (d *Dashboard) AlertsView(metrics *system.Collector) string {
 	return infoSectionStyle.Width(width).Render(content)
 }
 
+var (
+	systemCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#6495ED")).Padding(1).Margin(1)
+	cpuCardStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#82C91E")).Padding(1).Margin(1)
+	memoryCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#1C7ED6")).Padding(1).Margin(1)
+	diskCardStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#F08C00")).Padding(1).Margin(1)
+	networkCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#009EAE")).Padding(1).Margin(1)
+	processCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#C05621")).Padding(1).Margin(1)
+	alertsCardStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#FA5252")).Padding(1).Margin(1)
+)
+
+// CombinedView renders all sections in one scrollable view with colored headers
+func (d *Dashboard) CombinedView(metrics *system.Collector) string {
+	width := d.width - 4
+	colWidth := (width - 6) / 2
+
+	sysCard := systemCardStyle.Width(colWidth).Render(d.SystemView(metrics))
+	cpuCard := cpuCardStyle.Width(colWidth).Render(d.CPUView(metrics))
+	memCard := memoryCardStyle.Width(colWidth).Render(d.MemoryView(metrics))
+	diskCard := diskCardStyle.Width(colWidth).Render(d.DiskView(metrics))
+	netCard := networkCardStyle.Width(colWidth).Render(d.NetworkView(metrics))
+	procCard := processCardStyle.Width(colWidth).Render(d.ProcessView(metrics))
+	alertsCard := alertsCardStyle.Width(width).Render(d.AlertsView(metrics))
+
+	row1 := lipgloss.JoinHorizontal(lipgloss.Top, sysCard, cpuCard)
+	row2 := lipgloss.JoinHorizontal(lipgloss.Top, memCard, diskCard)
+	row3 := lipgloss.JoinHorizontal(lipgloss.Top, netCard, procCard)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, row1, row2, row3, alertsCard)
+	return content
+}
+
 // ActiveTabContent returns the content for the currently active tab
 func (d *Dashboard) ActiveTabContent(metrics *system.Collector) string {
 	switch d.activeTab {
@@ -418,6 +452,8 @@ func (d *Dashboard) ActiveTabContent(metrics *system.Collector) string {
 		return d.ProcessView(metrics)
 	case 6:
 		return d.AlertsView(metrics)
+	case 7:
+		return d.CombinedView(metrics)
 	default:
 		return "Unknown tab"
 	}

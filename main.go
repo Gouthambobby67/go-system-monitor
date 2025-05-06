@@ -158,22 +158,27 @@ func (m MonitorModel) View() string {
 		return fmt.Sprintf("Error: %v\n", m.err)
 	}
 	
-	// Main application layout
-	s := lipgloss.JoinVertical(lipgloss.Left,
-		// Title bar
-		lipgloss.PlaceHorizontal(
-			m.width, 
-			lipgloss.Center,
-			ui.TitleStyle.Render("GO SYSTEM MONITOR"),
-		),
-		// Tabs
-		m.dashboard.FormatTabs(),
-		// Main content area
+	// Header with title and last-updated timestamp
+	title := lipgloss.PlaceHorizontal(m.width, lipgloss.Left, ui.TitleStyle.Render("GO SYSTEM MONITOR"))
+	ts := lipgloss.PlaceHorizontal(m.width, lipgloss.Right, fmt.Sprintf("Updated: %s", m.metrics.System.LastUpdated.Format("15:04:05")))
+	headerBar := lipgloss.JoinHorizontal(lipgloss.Top, title, ts)
+
+	// Body: sidebar navigation + main content
+	body := lipgloss.JoinHorizontal(lipgloss.Top,
+		m.dashboard.FormatSidebar(),
 		m.dashboard.ActiveTabContent(m.metrics),
-		// Help footer
-		m.dashboard.RenderHelp(),
 	)
-	
+
+	// Footer with help
+	footer := m.dashboard.RenderHelp()
+
+	// Assemble layout
+	s := lipgloss.JoinVertical(lipgloss.Left,
+		headerBar,
+		body,
+		footer,
+	)
+
 	return s
 }
 
