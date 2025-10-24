@@ -44,6 +44,7 @@ func initialModel(cfg config.AppConfig) MonitorModel {
 		cfg.SwapThreshold,
 		cfg.RefreshInterval,
 		cfg.DefaultSortingMode,
+		cfg.MaxProcesses,
 		cfg.MaxAlertsToKeep,
 	)
 	
@@ -105,6 +106,26 @@ func (m MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Force refresh metrics
 			return m, collectMetricsCmd(m.metrics)
 			
+		case "c":
+			// Toggle compact mode
+			m.dashboard.ToggleCompactMode()
+			return m, nil
+			
+		case "?":
+			// Toggle help overlay
+			m.dashboard.ToggleHelp()
+			return m, nil
+			
+		case "f":
+			// Toggle fullscreen for current view
+			m.dashboard.ToggleFullscreen()
+			return m, nil
+			
+		case "s":
+			// Toggle status bar
+			m.dashboard.ToggleStatusBar()
+			return m, nil
+			
 		// Process sorting options (only apply when on the Processes tab)
 		case "1":
 			if m.dashboard.ActiveTab() == 5 { // Processes tab index
@@ -158,26 +179,8 @@ func (m MonitorModel) View() string {
 		return fmt.Sprintf("Error: %v\n", m.err)
 	}
 	
-	// Header with title and last-updated timestamp
-	title := lipgloss.PlaceHorizontal(m.width, lipgloss.Left, ui.TitleStyle.Render("GO SYSTEM MONITOR"))
-	ts := lipgloss.PlaceHorizontal(m.width, lipgloss.Right, fmt.Sprintf("Updated: %s", m.metrics.System.LastUpdated.Format("15:04:05")))
-	headerBar := lipgloss.JoinHorizontal(lipgloss.Top, title, ts)
-
-	// Body: sidebar navigation + main content
-	body := lipgloss.JoinHorizontal(lipgloss.Top,
-		m.dashboard.FormatSidebar(),
-		m.dashboard.ActiveTabContent(m.metrics),
-	)
-
-	// Footer with help
-	footer := m.dashboard.RenderHelp()
-
-	// Assemble layout
-	s := lipgloss.JoinVertical(lipgloss.Left,
-		headerBar,
-		body,
-		footer,
-	)
+	// Let the dashboard handle all rendering
+	s := m.dashboard.Render(m.metrics)
 
 	return s
 }

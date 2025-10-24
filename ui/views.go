@@ -235,7 +235,10 @@ func (d *Dashboard) ProcessView(metrics *system.Collector) string {
 	content += "Sort: [1] CPU  [2] Memory  [3] PID  [4] Name\n"
 	
 	// Display only the top processes to avoid overwhelming the UI
-	maxProcesses := 15
+	maxProcesses := metrics.MaxProcesses
+	if maxProcesses <= 0 {
+		maxProcesses = 15
+	}
 	if len(metrics.Process.Processes) < maxProcesses {
 		maxProcesses = len(metrics.Process.Processes)
 	}
@@ -405,33 +408,46 @@ func (d *Dashboard) AlertsView(metrics *system.Collector) string {
 }
 
 var (
-	systemCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#6495ED")).Padding(1).Margin(1)
-	cpuCardStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#82C91E")).Padding(1).Margin(1)
-	memoryCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#1C7ED6")).Padding(1).Margin(1)
-	diskCardStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#F08C00")).Padding(1).Margin(1)
-	networkCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#009EAE")).Padding(1).Margin(1)
-	processCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#C05621")).Padding(1).Margin(1)
-	alertsCardStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#FA5252")).Padding(1).Margin(1)
+	systemCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(PaletteAccent).Padding(1).Margin(1).Background(PaletteSurface)
+	cpuCardStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(PaletteSuccess).Padding(1).Margin(1).Background(PaletteSurface)
+	memoryCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#60A5FA")).Padding(1).Margin(1).Background(PaletteSurface)
+	diskCardStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(PaletteWarning).Padding(1).Margin(1).Background(PaletteSurface)
+	networkCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#06B6D4")).Padding(1).Margin(1).Background(PaletteSurface)
+	processCardStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#FB7185")).Padding(1).Margin(1).Background(PaletteSurface)
+	alertsCardStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(PaletteCritical).Padding(1).Margin(1).Background(PaletteSurface)
 )
 
 // CombinedView renders all sections in one scrollable view with colored headers
 func (d *Dashboard) CombinedView(metrics *system.Collector) string {
-	width := d.width - 4
-	colWidth := (width - 6) / 2
+	// Enhanced combined view (overview)
+	// Layout: top row: system | cpu | memory
+	// middle row: disk | network | alerts
+	// bottom: full-width processes table
+
+	width := d.width - 6 // account for some padding
+	if width < 40 {
+		// fallback to simple combined rendering when terminal is very narrow
+		return infoSectionStyle.Width(width).Render(d.SystemView(metrics) + "\n" + d.CPUView(metrics) + "\n" + d.MemoryView(metrics) + "\n" + d.ProcessView(metrics))
+	}
+
+	// compute column widths
+	colWidth := (width - 6) / 3
 
 	sysCard := systemCardStyle.Width(colWidth).Render(d.SystemView(metrics))
 	cpuCard := cpuCardStyle.Width(colWidth).Render(d.CPUView(metrics))
 	memCard := memoryCardStyle.Width(colWidth).Render(d.MemoryView(metrics))
+
 	diskCard := diskCardStyle.Width(colWidth).Render(d.DiskView(metrics))
 	netCard := networkCardStyle.Width(colWidth).Render(d.NetworkView(metrics))
-	procCard := processCardStyle.Width(colWidth).Render(d.ProcessView(metrics))
-	alertsCard := alertsCardStyle.Width(width).Render(d.AlertsView(metrics))
+	alertsCard := alertsCardStyle.Width(colWidth).Render(d.AlertsView(metrics))
 
-	row1 := lipgloss.JoinHorizontal(lipgloss.Top, sysCard, cpuCard)
-	row2 := lipgloss.JoinHorizontal(lipgloss.Top, memCard, diskCard)
-	row3 := lipgloss.JoinHorizontal(lipgloss.Top, netCard, procCard)
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, sysCard, cpuCard, memCard)
+	midRow := lipgloss.JoinHorizontal(lipgloss.Top, diskCard, netCard, alertsCard)
 
-	content := lipgloss.JoinVertical(lipgloss.Left, row1, row2, row3, alertsCard)
+	// Processes: render a full-width processes section beneath
+	procSection := processCardStyle.Width(width).Render(d.ProcessView(metrics))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, topRow, midRow, procSection)
 	return content
 }
 

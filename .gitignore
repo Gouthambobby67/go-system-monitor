@@ -1,3 +1,17 @@
+sysmon
+*.exe
+*.dll
+*.so
+*.dylib
+bin/
+vendor/
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.tmp
+# Go build cache
+*.test
 # Binaries for programs and plugins
 *.exe
 *.exe~

@@ -2,6 +2,7 @@ package system
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -99,10 +100,12 @@ type Collector struct {
 	Process     ProcessInfo
 	Interval    time.Duration
 	AlertManager *AlertManager
+	// MaxProcesses limits how many processes are shown in the UI
+	MaxProcesses int
 }
 
 // NewCollector creates a new metrics collector with optional configuration
-func NewCollector(cpuThreshold, memThreshold, diskThreshold, swapThreshold float64, refreshMs int, sortMode string, maxAlerts int) *Collector {
+func NewCollector(cpuThreshold, memThreshold, diskThreshold, swapThreshold float64, refreshMs int, sortMode string, maxProcesses int, maxAlerts int) *Collector {
 	// Convert milliseconds to time.Duration
 	interval := time.Duration(refreshMs) * time.Millisecond
 	
@@ -123,6 +126,7 @@ func NewCollector(cpuThreshold, memThreshold, diskThreshold, swapThreshold float
 			SortBy: sortBy,
 		},
 		AlertManager: NewAlertManager(cpuThreshold, memThreshold, diskThreshold, swapThreshold, maxAlerts),
+		MaxProcesses: maxProcesses,
 	}
 }
 
@@ -241,7 +245,7 @@ func (c *Collector) collectCPUInfo() error {
 	loadAvg, err := load.Avg()
 	if err != nil {
 		// Not critical, just log and continue
-		fmt.Printf("Warning: Could not get load average: %v\n", err)
+		log.Printf("Warning: Could not get load average: %v", err)
 	} else {
 		c.CPU.LoadAvg = loadAvg
 	}
@@ -304,7 +308,7 @@ func (c *Collector) collectDiskInfo() error {
 	for _, partition := range partitions {
 		usage, err := disk.Usage(partition.Mountpoint)
 		if err != nil {
-			fmt.Printf("Warning: Could not get usage for %s: %v\n", partition.Mountpoint, err)
+			log.Printf("Warning: Could not get usage for %s: %v", partition.Mountpoint, err)
 			continue
 		}
 		usageStats[partition.Mountpoint] = usage
@@ -314,7 +318,7 @@ func (c *Collector) collectDiskInfo() error {
 	// Get IO counters
 	ioCounters, err := disk.IOCounters()
 	if err != nil {
-		fmt.Printf("Warning: Could not get disk IO counters: %v\n", err)
+		log.Printf("Warning: Could not get disk IO counters: %v", err)
 	} else {
 		c.Disk.IOCounters = ioCounters
 	}
@@ -334,7 +338,7 @@ func (c *Collector) collectNetworkInfo() error {
 	// Get network IO counters
 	ioCounters, err := net.IOCounters(true)
 	if err != nil {
-		fmt.Printf("Warning: Could not get network IO counters: %v\n", err)
+		log.Printf("Warning: Could not get network IO counters: %v", err)
 	} else {
 		countersMap := make(map[string]net.IOCountersStat)
 		for _, ioc := range ioCounters {
@@ -346,7 +350,7 @@ func (c *Collector) collectNetworkInfo() error {
 	// Get network connections (might require elevated privileges)
 	connections, err := net.Connections("all")
 	if err != nil {
-		fmt.Printf("Warning: Could not get network connections: %v\n", err)
+		log.Printf("Warning: Could not get network connections: %v", err)
 	} else {
 		c.Network.Connections = connections
 	}
@@ -405,6 +409,9 @@ func (c *Collector) collectProcessInfo() error {
 			createTime = 0
 		}
 
+		// CreateTime returns milliseconds since epoch; use UnixMilli for clarity
+		createdAt := time.UnixMilli(createTime)
+
 		processes = append(processes, ProcessDetail{
 			PID:        pid,
 			Name:       name,
@@ -412,14 +419,17 @@ func (c *Collector) collectProcessInfo() error {
 			Status:     status,
 			CPUPercent: cpuPercent,
 			MemPercent: memPercent,
-			CreatedAt:  time.Unix(0, createTime*int64(time.Millisecond)),
+			CreatedAt:  createdAt,
 		})
 	}
 
 	// Sort the processes according to the sort type
 	c.SortProcesses(processes)
-	c.Process.Processes = processes
+
 	c.Process.Total = len(processes)
+
+	// Store processes; keep full list but UI will respect MaxProcesses when rendering
+	c.Process.Processes = processes
 
 	return nil
 }
