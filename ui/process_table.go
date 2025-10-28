@@ -24,8 +24,8 @@ var columns = []struct {
 }{
 	{"PID", 8, lipgloss.Right, func(p system.ProcessDetail) string {
 		pidStyle := BaseStyle
-		if p.Priority < 0 {
-			// Highlight processes with negative nice values (higher priority)
+		// ProcessDetail doesn't include priority in this collector; highlight by CPU instead
+		if p.CPUPercent > 80 {
 			pidStyle = NormalStyle.Copy().Bold(true)
 		}
 		return pidStyle.Render(fmt.Sprintf("%7d", p.PID))
@@ -77,10 +77,11 @@ var columns = []struct {
 	}},
 	{"THREADS", 5, lipgloss.Right, func(p system.ProcessDetail) string {
 		style := BaseStyle
-		if p.NumThreads > 20 {
+		// ProcessDetail does not provide thread count; show placeholder
+		if p.CPUPercent > 50 {
 			style = WarningStyle
 		}
-		return style.Render(fmt.Sprintf("%4d", p.NumThreads))
+		return style.Render(fmt.Sprintf("%4s", "-"))
 	}},
 	{"NAME", 30, lipgloss.Left, func(p system.ProcessDetail) string {
 		style := BaseStyle
@@ -137,7 +138,7 @@ func (pt *ProcessTable) Render(processes []system.ProcessDetail) string {
 		}
 	}
 	header := lipgloss.JoinHorizontal(lipgloss.Top, headers...)
-	
+
 	// Adjust name column width based on available space
 	nameColWidth := pt.width - fixedWidth - 4 // -4 for margins
 	if nameColWidth < 20 {
@@ -159,15 +160,15 @@ func (pt *ProcessTable) Render(processes []system.ProcessDetail) string {
 	for i := 0; i < maxRows; i++ {
 		proc := processes[i]
 		var cells []string
-		
+
 		// Alternate row backgrounds for better readability
 		rowStyle := TableRowStyle
 		if i%2 == 1 {
 			rowStyle = rowStyle.Background(Theme.Surface)
 		}
 
-		// Highlight high-priority or resource-intensive processes
-		if proc.Priority < 0 || proc.CPUPercent > 50 || proc.MemPercent > 50 {
+		// Highlight resource-intensive processes
+		if proc.CPUPercent > 50 || float64(proc.MemPercent) > 50 {
 			rowStyle = rowStyle.Bold(true)
 		}
 
@@ -179,12 +180,15 @@ func (pt *ProcessTable) Render(processes []system.ProcessDetail) string {
 				Render(cellContent)
 			cells = append(cells, cell)
 		}
-		
+
 		// Join cells with proper spacing
 		row := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
 
+		rows = append(rows, row)
+	}
+
 	// Show sort method and process count in the header
-	title := fmt.Sprintf("Processes (%d) - Sorted by %s", 
+	title := fmt.Sprintf("Processes (%d) - Sorted by %s",
 		len(processes),
 		getSortMethodName(pt.sortBy))
 
@@ -196,15 +200,15 @@ func (pt *ProcessTable) Render(processes []system.ProcessDetail) string {
 		if scrollbarHeight < 1 {
 			scrollbarHeight = 1
 		}
-		
+
 		scrollbar = lipgloss.NewStyle().
 			Foreground(Theme.Border).
 			Render(strings.Repeat("│", pt.height-4))
-		
+
 		scrollHandle := lipgloss.NewStyle().
 			Foreground(Theme.Accent).
 			Render(strings.Repeat("┃", scrollbarHeight))
-		
+
 		// Position the scroll handle
 		scrollStartPos := 0
 		if len(processes) > maxRows {
@@ -213,7 +217,7 @@ func (pt *ProcessTable) Render(processes []system.ProcessDetail) string {
 		if scrollStartPos+scrollbarHeight > pt.height-4 {
 			scrollStartPos = pt.height - 4 - scrollbarHeight
 		}
-		
+
 		// Insert the handle into the scrollbar
 		scrollRunes := []rune(scrollbar)
 		handleRunes := []rune(scrollHandle)
@@ -240,7 +244,7 @@ func (pt *ProcessTable) Render(processes []system.ProcessDetail) string {
 		lipgloss.JoinVertical(lipgloss.Left,
 			title,
 			table,
-		)
+		),
 	)
 }
 

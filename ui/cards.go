@@ -1,5 +1,7 @@
 package ui
 
+import "go_system_monitor/system"
+
 // CardConfig controls which cards are shown in the combined view
 type CardConfig struct {
 	ShowSystem    bool

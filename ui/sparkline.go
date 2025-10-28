@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -112,5 +113,5 @@ func formatFloat(v float64) string {
 	if v >= 100 {
 		return "100%"
 	}
-	return sprintf("%.1f%%", v)
+	return fmt.Sprintf("%.1f%%", v)
 }

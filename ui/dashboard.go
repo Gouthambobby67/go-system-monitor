@@ -291,38 +291,51 @@ func (d *Dashboard) Render(metrics *system.Collector) string {
 			lipgloss.JoinVertical(lipgloss.Left, helpText...)),
 		)
 	} else {
-		basicHelp := d.activeTab == 5 ?
-			"Tab/←→: Navigate • q: Quit • r: Refresh • 1-4: Sort • ?: Help" :
-			"Tab/←→: Navigate • q: Quit • r: Refresh • ?: Help"
+		var basicHelp string
+		if d.activeTab == 5 {
+			basicHelp = "Tab/←→: Navigate • q: Quit • r: Refresh • 1-4: Sort • ?: Help"
+		} else {
+			basicHelp = "Tab/←→: Navigate • q: Quit • r: Refresh • ?: Help"
+		}
 		elements = append(elements, helpStyle.Render(basicHelp))
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, elements...)
+}
 
 // Helper methods for rendering different views
 
 func (d *Dashboard) renderOverview(metrics *system.Collector) string {
-	cpuUsage := RenderProgress("CPU Usage", metrics.CPU.TotalUsage, d.width-4)
-	memUsage := RenderProgress("Memory Usage", metrics.Memory.UsagePercent, d.width-4)
-	diskUsage := RenderProgress("Disk Usage", metrics.Disk.UsagePercent, d.width-4)
-	
+	// Use the Collector's current fields
+	cpuUsage := RenderProgress("CPU Usage", metrics.CPU.Usage, d.width-4)
+	memUsage := RenderProgress("Memory Usage", metrics.Memory.UsedPercent, d.width-4)
+
+	// Pick a representative disk usage (first partition) if available
+	var diskUsagePercent float64
+	if len(metrics.Disk.UsageStats) > 0 {
+		for _, u := range metrics.Disk.UsageStats {
+			diskUsagePercent = u.UsedPercent
+			break
+		}
+	}
+	diskUsage := RenderProgress("Disk Usage", diskUsagePercent, d.width-4)
+
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		cpuUsage,
 		memUsage,
 		diskUsage,
 	)
-	
+
 	return infoSectionStyle.Width(d.width - 4).Render(content)
 }
 
 func (d *Dashboard) renderCPU(metrics *system.Collector) string {
 	var content []string
-	
-	content = append(content, RenderProgress("Total CPU", metrics.CPU.TotalUsage, d.width-4))
-	for i, usage := range metrics.CPU.PerCPUUsage {
+	content = append(content, RenderProgress("Total CPU", metrics.CPU.Usage, d.width-4))
+	for i, usage := range metrics.CPU.UsagePerCPU {
 		content = append(content, RenderProgress(fmt.Sprintf("CPU %d", i), usage, d.width-4))
 	}
-	
+
 	return infoSectionStyle.Width(d.width - 4).Render(
 		lipgloss.JoinVertical(lipgloss.Left, content...),
 	)
@@ -330,12 +343,11 @@ func (d *Dashboard) renderCPU(metrics *system.Collector) string {
 
 func (d *Dashboard) renderMemory(metrics *system.Collector) string {
 	var content []string
-	
-	content = append(content, RenderProgress("Memory Usage", metrics.Memory.UsagePercent, d.width-4))
+	content = append(content, RenderProgress("Memory Usage", metrics.Memory.UsedPercent, d.width-4))
 	content = append(content, fmt.Sprintf("Total: %s", FormatBytes(metrics.Memory.Total)))
 	content = append(content, fmt.Sprintf("Used: %s", FormatBytes(metrics.Memory.Used)))
 	content = append(content, fmt.Sprintf("Free: %s", FormatBytes(metrics.Memory.Free)))
-	
+
 	return infoSectionStyle.Width(d.width - 4).Render(
 		lipgloss.JoinVertical(lipgloss.Left, content...),
 	)
@@ -343,12 +355,24 @@ func (d *Dashboard) renderMemory(metrics *system.Collector) string {
 
 func (d *Dashboard) renderDisk(metrics *system.Collector) string {
 	var content []string
-	
-	content = append(content, RenderProgress("Disk Usage", metrics.Disk.UsagePercent, d.width-4))
-	content = append(content, fmt.Sprintf("Total: %s", FormatBytes(metrics.Disk.Total)))
-	content = append(content, fmt.Sprintf("Used: %s", FormatBytes(metrics.Disk.Used)))
-	content = append(content, fmt.Sprintf("Free: %s", FormatBytes(metrics.Disk.Free)))
-	
+	// Show the first partition's usage as a representative sample
+	var total, used, free uint64
+	var usedPercent float64
+	if len(metrics.Disk.UsageStats) > 0 {
+		for _, u := range metrics.Disk.UsageStats {
+			total = u.Total
+			used = u.Used
+			free = u.Free
+			usedPercent = u.UsedPercent
+			break
+		}
+	}
+
+	content = append(content, RenderProgress("Disk Usage", usedPercent, d.width-4))
+	content = append(content, fmt.Sprintf("Total: %s", FormatBytes(total)))
+	content = append(content, fmt.Sprintf("Used: %s", FormatBytes(used)))
+	content = append(content, fmt.Sprintf("Free: %s", FormatBytes(free)))
+
 	return infoSectionStyle.Width(d.width - 4).Render(
 		lipgloss.JoinVertical(lipgloss.Left, content...),
 	)
@@ -356,37 +380,46 @@ func (d *Dashboard) renderDisk(metrics *system.Collector) string {
 
 func (d *Dashboard) renderNetwork(metrics *system.Collector) string {
 	var content []string
-	
-	content = append(content, fmt.Sprintf("Network In: %s/s", FormatBytes(metrics.Network.BytesRecv)))
-	content = append(content, fmt.Sprintf("Network Out: %s/s", FormatBytes(metrics.Network.BytesSent)))
-	content = append(content, fmt.Sprintf("Packets In: %d/s", metrics.Network.PacketsRecv))
-	content = append(content, fmt.Sprintf("Packets Out: %d/s", metrics.Network.PacketsSent))
-	
+	// Aggregate counters across all interfaces
+	var bytesIn, bytesOut uint64
+	var packetsIn, packetsOut uint64
+	for _, c := range metrics.Network.IOCounters {
+		bytesIn += c.BytesRecv
+		bytesOut += c.BytesSent
+		packetsIn += c.PacketsRecv
+		packetsOut += c.PacketsSent
+	}
+
+	content = append(content, fmt.Sprintf("Network In: %s/s", FormatBytes(bytesIn)))
+	content = append(content, fmt.Sprintf("Network Out: %s/s", FormatBytes(bytesOut)))
+	content = append(content, fmt.Sprintf("Packets In: %d/s", packetsIn))
+	content = append(content, fmt.Sprintf("Packets Out: %d/s", packetsOut))
+
 	return infoSectionStyle.Width(d.width - 4).Render(
 		lipgloss.JoinVertical(lipgloss.Left, content...),
 	)
 }
 
 func (d *Dashboard) renderAlerts(metrics *system.Collector) string {
-	if len(metrics.Alerts) == 0 {
+	if metrics.AlertManager == nil || len(metrics.AlertManager.Alerts) == 0 {
 		return infoSectionStyle.Width(d.width - 4).Render("No active alerts")
 	}
-	
+
 	var content []string
-	for _, alert := range metrics.Alerts {
+	for _, alert := range metrics.AlertManager.Alerts {
 		style := normalValueStyle
-		if alert.Level == "warning" {
+		if alert.Level == system.WarningLevel {
 			style = warnValueStyle
-		} else if alert.Level == "critical" {
+		} else if alert.Level == system.CriticalLevel {
 			style = criticalValueStyle
 		}
-		
-		content = append(content, style.Render(fmt.Sprintf("[%s] %s", 
-			strings.ToUpper(alert.Level), 
+
+		content = append(content, style.Render(fmt.Sprintf("[%s] %s",
+			strings.ToUpper(string(alert.Level)),
 			alert.Message)),
 		)
 	}
-	
+
 	return infoSectionStyle.Width(d.width - 4).Render(
 		lipgloss.JoinVertical(lipgloss.Left, content...),
 	)
