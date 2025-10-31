@@ -1,8 +1,12 @@
-# Go System Monitor
+<img width="1149" height="413" alt="Screenshot_20251031_144205" src="https://github.com/user-attachments/assets/1f63e97c-2352-484a-af0a-b2e121e562cb" /># Go System Monitor
 
 A powerful terminal-based system monitoring tool built in Go that provides real-time metrics and alerts for your system.
 
 ![System Monitor Screenshot](screenshot.png)
+
+![Uploading Screenshot_20251031_144205.png<img width="1149" height="413" alt="Screenshot_20251031_144205-1" src="https://github.com/user-attachments/assets/188083cb-db3e-489b-9f37-8a4bb56f1fcc" /><img width="1148" height="401" alt="Screenshot_20251031_144228-1" src="https://github.com/user-attachments/assets/da729c18-f9b1-4d41-b2e0-b0c6f1b5fc81" />
+<img width="1148" height="401" alt="Screenshot_20251031_144228" src="https://github.com/user-attachments/assets/f40a925a-36d8-4536-8694-6804636d66b0" />
+
 
 ## Features
 
