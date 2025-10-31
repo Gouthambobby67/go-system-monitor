@@ -150,6 +150,82 @@ func (m MonitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.metrics.Process.SortBy = system.SortByName
 				return m, collectMetricsCmd(m.metrics)
 			}
+		
+		// Process table scrolling (only when on Processes tab)
+		case "up", "k":
+			if m.dashboard.ActiveTab() == 5 {
+				m.dashboard.ScrollProcessUp()
+				return m, nil
+			}
+		
+		case "down", "j":
+			if m.dashboard.ActiveTab() == 5 {
+				m.dashboard.ScrollProcessDown(len(m.metrics.Process.Processes))
+				return m, nil
+			}
+		
+		case "pageup", "ctrl+u":
+			if m.dashboard.ActiveTab() == 5 {
+				m.dashboard.PageUpProcess()
+				return m, nil
+			}
+		
+		case "pagedown", "ctrl+d":
+			if m.dashboard.ActiveTab() == 5 {
+				m.dashboard.PageDownProcess(len(m.metrics.Process.Processes))
+				return m, nil
+			}
+		
+		case "home", "g":
+			if m.dashboard.ActiveTab() == 5 {
+				m.dashboard.HomeProcess()
+				return m, nil
+			}
+		
+		case "end", "G":
+			if m.dashboard.ActiveTab() == 5 {
+				m.dashboard.EndProcess(len(m.metrics.Process.Processes))
+				return m, nil
+			}
+		}
+
+	// Handle mouse events
+	case tea.MouseMsg:
+		switch msg.Type {
+		case tea.MouseLeft:
+			// Mouse click on tabs (very basic implementation)
+			// Tab width is roughly 20 chars each, adjust based on screen
+			if msg.Y == 1 { // Assuming tabs are on line 1
+				tabWidth := 20
+				clickedTab := msg.X / tabWidth
+				// Navigate to clicked tab (tabs: Overview=0, CPU=1, Memory=2, Disk=3, Network=4, Processes=5, Alerts=6)
+				if clickedTab >= 0 && clickedTab < 7 {
+					// Use the existing NextTab/PrevTab methods to navigate
+					current := m.dashboard.ActiveTab()
+					if clickedTab > current {
+						for i := 0; i < (clickedTab - current); i++ {
+							m.dashboard.NextTab()
+						}
+					} else if clickedTab < current {
+						for i := 0; i < (current - clickedTab); i++ {
+							m.dashboard.PrevTab()
+						}
+					}
+					return m, nil
+				}
+			}
+		case tea.MouseWheelUp:
+			// Scroll up in process table
+			if m.dashboard.ActiveTab() == 5 {
+				m.dashboard.ScrollProcessUp()
+				return m, nil
+			}
+		case tea.MouseWheelDown:
+			// Scroll down in process table
+			if m.dashboard.ActiveTab() == 5 {
+				m.dashboard.ScrollProcessDown(len(m.metrics.Process.Processes))
+				return m, nil
+			}
 		}
 
 	// Handle tick events

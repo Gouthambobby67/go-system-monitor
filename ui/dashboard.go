@@ -72,6 +72,7 @@ type Dashboard struct {
 	showHelp      bool
 	fullscreen    bool
 	showStatusBar bool
+	cardConfig    CardConfig
 }
 
 // NewDashboard creates a new dashboard
@@ -86,6 +87,7 @@ func NewDashboard() Dashboard {
 		compactMode:   false,
 		showHelp:      false,
 		fullscreen:    false,
+		cardConfig:    DefaultCardConfig(),
 	}
 }
 
@@ -197,6 +199,27 @@ func FormatBytes(bytes uint64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
+// FormatNumber formats a number with thousands separators
+func FormatNumber(n int) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	
+	s := fmt.Sprintf("%d", n)
+	result := ""
+	count := 0
+	
+	for i := len(s) - 1; i >= 0; i-- {
+		if count > 0 && count%3 == 0 {
+			result = "," + result
+		}
+		result = string(s[i]) + result
+		count++
+	}
+	
+	return result
+}
+
 // RenderMainContent returns the content for the currently active tab
 func (d *Dashboard) RenderMainContent(metrics *system.Collector) string {
 	switch d.activeTab {
@@ -234,6 +257,56 @@ func (d *Dashboard) ToggleFullscreen() {
 
 func (d *Dashboard) ToggleStatusBar() {
 	d.showStatusBar = !d.showStatusBar
+}
+
+// UpdateCardConfig updates card visibility based on a key press
+func (d *Dashboard) UpdateCardConfig(key string) {
+	switch key {
+	case "s":
+		d.cardConfig.ShowSystem = !d.cardConfig.ShowSystem
+	case "c":
+		d.cardConfig.ShowCPU = !d.cardConfig.ShowCPU
+	case "m":
+		d.cardConfig.ShowMemory = !d.cardConfig.ShowMemory
+	case "d":
+		d.cardConfig.ShowDisk = !d.cardConfig.ShowDisk
+	case "n":
+		d.cardConfig.ShowNetwork = !d.cardConfig.ShowNetwork
+	case "a":
+		d.cardConfig.ShowAlerts = !d.cardConfig.ShowAlerts
+	case "g":
+		d.cardConfig.ShowSparkline = !d.cardConfig.ShowSparkline
+	}
+}
+
+// Process table scrolling delegation methods
+func (d *Dashboard) ScrollProcessUp() {
+	d.processTable.ScrollUp()
+}
+
+func (d *Dashboard) ScrollProcessDown(maxRows int) {
+	d.processTable.ScrollDown(maxRows)
+}
+
+func (d *Dashboard) PageUpProcess() {
+	d.processTable.PageUp()
+}
+
+func (d *Dashboard) PageDownProcess(maxRows int) {
+	d.processTable.PageDown(maxRows)
+}
+
+func (d *Dashboard) HomeProcess() {
+	d.processTable.Home()
+}
+
+func (d *Dashboard) EndProcess(maxRows int) {
+	d.processTable.End(maxRows)
+}
+
+// SetProcessFilter sets the filter text for the process table
+func (d *Dashboard) SetProcessFilter(text string) {
+	d.processTable.SetFilterText(text)
 }
 
 // Render returns the complete dashboard view
@@ -280,7 +353,14 @@ func (d *Dashboard) Render(metrics *system.Collector) string {
 			"  ?: Toggle this help",
 		}
 		if d.activeTab == 5 { // Processes tab
-			helpText = append(helpText, "", "Process Sorting:",
+			helpText = append(helpText, "", "Process Navigation:",
+				"  ↑/k: Scroll up",
+				"  ↓/j: Scroll down",
+				"  PgUp/Ctrl+u: Page up",
+				"  PgDn/Ctrl+d: Page down",
+				"  Home/g: Jump to top",
+				"  End/G: Jump to bottom",
+				"", "Process Sorting:",
 				"  1: Sort by CPU",
 				"  2: Sort by Memory",
 				"  3: Sort by PID",
@@ -293,7 +373,7 @@ func (d *Dashboard) Render(metrics *system.Collector) string {
 	} else {
 		var basicHelp string
 		if d.activeTab == 5 {
-			basicHelp = "Tab/←→: Navigate • q: Quit • r: Refresh • 1-4: Sort • ?: Help"
+			basicHelp = "Tab/←→: Navigate • ↑↓/jk: Scroll • PgUp/PgDn: Page • Home/End: Jump • 1-4: Sort • q: Quit • r: Refresh • ?: Help"
 		} else {
 			basicHelp = "Tab/←→: Navigate • q: Quit • r: Refresh • ?: Help"
 		}
@@ -380,20 +460,47 @@ func (d *Dashboard) renderDisk(metrics *system.Collector) string {
 
 func (d *Dashboard) renderNetwork(metrics *system.Collector) string {
 	var content []string
-	// Aggregate counters across all interfaces
-	var bytesIn, bytesOut uint64
-	var packetsIn, packetsOut uint64
-	for _, c := range metrics.Network.IOCounters {
-		bytesIn += c.BytesRecv
-		bytesOut += c.BytesSent
-		packetsIn += c.PacketsRecv
-		packetsOut += c.PacketsSent
+	
+	// Show per-interface rates if available
+	if len(metrics.Network.RecvRate) > 0 {
+		content = append(content, "Network I/O Rates:")
+		
+		// Aggregate total rates
+		var totalRecv, totalSent float64
+		for iface, recvRate := range metrics.Network.RecvRate {
+			if iface == "lo" {
+				continue // Skip loopback
+			}
+			sentRate := metrics.Network.SentRate[iface]
+			totalRecv += recvRate
+			totalSent += sentRate
+			
+			if recvRate > 0 || sentRate > 0 {
+				content = append(content, fmt.Sprintf("  %s: ↓ %s/s  ↑ %s/s", 
+					iface, 
+					FormatBytes(uint64(recvRate)), 
+					FormatBytes(uint64(sentRate))))
+			}
+		}
+		
+		content = append(content, "")
+		content = append(content, fmt.Sprintf("Total: ↓ %s/s  ↑ %s/s", 
+			FormatBytes(uint64(totalRecv)), 
+			FormatBytes(uint64(totalSent))))
+	} else {
+		// Fallback to cumulative counters
+		var bytesIn, bytesOut uint64
+		for _, c := range metrics.Network.IOCounters {
+			bytesIn += c.BytesRecv
+			bytesOut += c.BytesSent
+		}
+		content = append(content, fmt.Sprintf("Total Received: %s", FormatBytes(bytesIn)))
+		content = append(content, fmt.Sprintf("Total Sent: %s", FormatBytes(bytesOut)))
 	}
-
-	content = append(content, fmt.Sprintf("Network In: %s/s", FormatBytes(bytesIn)))
-	content = append(content, fmt.Sprintf("Network Out: %s/s", FormatBytes(bytesOut)))
-	content = append(content, fmt.Sprintf("Packets In: %d/s", packetsIn))
-	content = append(content, fmt.Sprintf("Packets Out: %d/s", packetsOut))
+	
+	// Add connection count
+	content = append(content, "")
+	content = append(content, fmt.Sprintf("Active Connections: %d", len(metrics.Network.Connections)))
 
 	return infoSectionStyle.Width(d.width - 4).Render(
 		lipgloss.JoinVertical(lipgloss.Left, content...),

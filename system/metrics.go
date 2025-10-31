@@ -1,7 +1,6 @@
 package system
 
 import (
-	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -33,6 +32,7 @@ type CPUInfo struct {
 	Cores       int
 	LoadAvg     *load.AvgStat
 	Temperature float64 // Note: Might not be available on all systems
+	History     TimeSeries
 }
 
 // MemoryInfo contains memory metrics
@@ -45,20 +45,27 @@ type MemoryInfo struct {
 	SwapUsed    uint64
 	SwapFree    uint64
 	SwapPercent float64
+	History     TimeSeries
 }
 
 // DiskInfo contains disk metrics
 type DiskInfo struct {
-	Partitions  []disk.PartitionStat
-	UsageStats  map[string]*disk.UsageStat
-	IOCounters  map[string]disk.IOCountersStat
+	Partitions     []disk.PartitionStat
+	UsageStats     map[string]*disk.UsageStat
+	IOCounters     map[string]disk.IOCountersStat
+	PrevIOCounters map[string]disk.IOCountersStat
+	ReadRate       map[string]float64  // bytes per second
+	WriteRate      map[string]float64  // bytes per second
 }
 
 // NetworkInfo contains network metrics
 type NetworkInfo struct {
-	Interfaces  []net.InterfaceStat
-	IOCounters  map[string]net.IOCountersStat
-	Connections []net.ConnectionStat
+	Interfaces     []net.InterfaceStat
+	IOCounters     map[string]net.IOCountersStat
+	PrevIOCounters map[string]net.IOCountersStat
+	RecvRate       map[string]float64 // bytes per second
+	SentRate       map[string]float64 // bytes per second
+	Connections    []net.ConnectionStat
 }
 
 // SortType defines process sorting methods
@@ -88,20 +95,27 @@ type ProcessDetail struct {
 	CPUPercent float64
 	MemPercent float32
 	CreatedAt  time.Time
+	NumThreads int32
+	CmdLine    string
+	PPID       int32
+	Nice       int32
+	MemRSS     uint64
+	MemVMS     uint64
 }
 
 // Collector handles collecting and storing metrics
 type Collector struct {
-	System      SystemInfo
-	CPU         CPUInfo
-	Memory      MemoryInfo
-	Disk        DiskInfo
-	Network     NetworkInfo
-	Process     ProcessInfo
-	Interval    time.Duration
-	AlertManager *AlertManager
-	// MaxProcesses limits how many processes are shown in the UI
-	MaxProcesses int
+	System           SystemInfo
+	CPU              CPUInfo
+	Memory           MemoryInfo
+	Disk             DiskInfo
+	Network          NetworkInfo
+	Process          ProcessInfo
+	Interval         time.Duration
+	AlertManager     *AlertManager
+	MaxProcesses     int // MaxProcesses limits how many processes are shown in the UI
+	MaxHistoryPoints int // Maximum number of history points to keep
+	lastCollectTime  time.Time
 }
 
 // NewCollector creates a new metrics collector with optional configuration
@@ -125,8 +139,10 @@ func NewCollector(cpuThreshold, memThreshold, diskThreshold, swapThreshold float
 		Process: ProcessInfo{
 			SortBy: sortBy,
 		},
-		AlertManager: NewAlertManager(cpuThreshold, memThreshold, diskThreshold, swapThreshold, maxAlerts),
-		MaxProcesses: maxProcesses,
+		AlertManager:     NewAlertManager(cpuThreshold, memThreshold, diskThreshold, swapThreshold, maxAlerts),
+		MaxProcesses:     maxProcesses,
+		MaxHistoryPoints: 60, // Keep last 60 data points (1 minute at 1sec refresh)
+		lastCollectTime:  time.Now(),
 	}
 }
 
@@ -165,38 +181,49 @@ func (c *Collector) SortProcesses(processes []ProcessDetail) {
 func (c *Collector) Collect() error {
 	var err error
 
+	// Calculate time delta for rate calculations
+	now := time.Now()
+	timeDelta := now.Sub(c.lastCollectTime).Seconds()
+	if timeDelta == 0 {
+		timeDelta = 1 // Avoid division by zero
+	}
+	c.lastCollectTime = now
+
 	// Update timestamp
-	c.System.LastUpdated = time.Now()
+	c.System.LastUpdated = now
 
 	// Collect system info
 	if err = c.collectSystemInfo(); err != nil {
-		return fmt.Errorf("failed to collect system info: %v", err)
+		log.Printf("Warning: Failed to collect system info: %v", err)
 	}
 
 	// Collect CPU info
 	if err = c.collectCPUInfo(); err != nil {
-		return fmt.Errorf("failed to collect CPU info: %v", err)
+		log.Printf("Warning: Failed to collect CPU info: %v", err)
 	}
 
 	// Collect memory info
 	if err = c.collectMemoryInfo(); err != nil {
-		return fmt.Errorf("failed to collect memory info: %v", err)
+		log.Printf("Warning: Failed to collect memory info: %v", err)
 	}
 
 	// Collect disk info
-	if err = c.collectDiskInfo(); err != nil {
-		return fmt.Errorf("failed to collect disk info: %v", err)
+	if err = c.collectDiskInfo(timeDelta); err != nil {
+		log.Printf("Warning: Failed to collect disk info: %v", err)
 	}
 
 	// Collect network info
-	if err = c.collectNetworkInfo(); err != nil {
-		return fmt.Errorf("failed to collect network info: %v", err)
+	if err = c.collectNetworkInfo(timeDelta); err != nil {
+		log.Printf("Warning: Failed to collect network info: %v", err)
 	}
 
 	// Collect process info
 	if err = c.collectProcessInfo(); err != nil {
-		return fmt.Errorf("failed to collect process info: %v", err)
+		log.Printf("Warning: Failed to collect process info: %v", err)
 	}
+
+	// Update history for CPU and Memory
+	c.updateHistory()
 
 	// Check for any alerts based on collected metrics
 	if c.AlertManager != nil {
@@ -204,6 +231,31 @@ func (c *Collector) Collect() error {
 	}
 
 	return nil
+}
+
+// updateHistory adds current metrics to history and trims old data
+func (c *Collector) updateHistory() {
+	now := time.Now()
+
+	// Add CPU usage to history
+	c.CPU.History.Points = append(c.CPU.History.Points, TimeSeriesPoint{
+		Timestamp: now,
+		Value:     c.CPU.Usage,
+	})
+	// Trim if exceeds max points
+	if len(c.CPU.History.Points) > c.MaxHistoryPoints {
+		c.CPU.History.Points = c.CPU.History.Points[len(c.CPU.History.Points)-c.MaxHistoryPoints:]
+	}
+
+	// Add Memory usage to history
+	c.Memory.History.Points = append(c.Memory.History.Points, TimeSeriesPoint{
+		Timestamp: now,
+		Value:     c.Memory.UsedPercent,
+	})
+	// Trim if exceeds max points
+	if len(c.Memory.History.Points) > c.MaxHistoryPoints {
+		c.Memory.History.Points = c.Memory.History.Points[len(c.Memory.History.Points)-c.MaxHistoryPoints:]
+	}
 }
 
 // collectSystemInfo gathers system information
@@ -295,7 +347,7 @@ func (c *Collector) collectMemoryInfo() error {
 }
 
 // collectDiskInfo gathers disk metrics
-func (c *Collector) collectDiskInfo() error {
+func (c *Collector) collectDiskInfo(timeDelta float64) error {
 	// Get partitions
 	partitions, err := disk.Partitions(false)
 	if err != nil {
@@ -320,6 +372,21 @@ func (c *Collector) collectDiskInfo() error {
 	if err != nil {
 		log.Printf("Warning: Could not get disk IO counters: %v", err)
 	} else {
+		// Calculate read/write rates
+		if c.Disk.PrevIOCounters != nil {
+			c.Disk.ReadRate = make(map[string]float64)
+			c.Disk.WriteRate = make(map[string]float64)
+			
+			for name, counter := range ioCounters {
+				if prev, ok := c.Disk.PrevIOCounters[name]; ok {
+					readDelta := float64(counter.ReadBytes - prev.ReadBytes)
+					writeDelta := float64(counter.WriteBytes - prev.WriteBytes)
+					c.Disk.ReadRate[name] = readDelta / timeDelta
+					c.Disk.WriteRate[name] = writeDelta / timeDelta
+				}
+			}
+		}
+		c.Disk.PrevIOCounters = ioCounters
 		c.Disk.IOCounters = ioCounters
 	}
 
@@ -327,7 +394,7 @@ func (c *Collector) collectDiskInfo() error {
 }
 
 // collectNetworkInfo gathers network metrics
-func (c *Collector) collectNetworkInfo() error {
+func (c *Collector) collectNetworkInfo(timeDelta float64) error {
 	// Get network interfaces
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -344,6 +411,22 @@ func (c *Collector) collectNetworkInfo() error {
 		for _, ioc := range ioCounters {
 			countersMap[ioc.Name] = ioc
 		}
+		
+		// Calculate recv/sent rates
+		if c.Network.PrevIOCounters != nil {
+			c.Network.RecvRate = make(map[string]float64)
+			c.Network.SentRate = make(map[string]float64)
+			
+			for name, counter := range countersMap {
+				if prev, ok := c.Network.PrevIOCounters[name]; ok {
+					recvDelta := float64(counter.BytesRecv - prev.BytesRecv)
+					sentDelta := float64(counter.BytesSent - prev.BytesSent)
+					c.Network.RecvRate[name] = recvDelta / timeDelta
+					c.Network.SentRate[name] = sentDelta / timeDelta
+				}
+			}
+		}
+		c.Network.PrevIOCounters = countersMap
 		c.Network.IOCounters = countersMap
 	}
 
@@ -408,9 +491,39 @@ func (c *Collector) collectProcessInfo() error {
 		if err != nil {
 			createTime = 0
 		}
-
-		// CreateTime returns milliseconds since epoch; use UnixMilli for clarity
 		createdAt := time.UnixMilli(createTime)
+
+		// Get thread count
+		numThreads, err := p.NumThreads()
+		if err != nil {
+			numThreads = 0
+		}
+
+		// Get command line
+		cmdLine, err := p.Cmdline()
+		if err != nil {
+			cmdLine = ""
+		}
+
+		// Get parent PID
+		ppid, err := p.Ppid()
+		if err != nil {
+			ppid = 0
+		}
+
+		// Get nice value
+		nice, err := p.Nice()
+		if err != nil {
+			nice = 0
+		}
+
+		// Get memory info
+		memInfo, err := p.MemoryInfo()
+		var memRSS, memVMS uint64
+		if err == nil && memInfo != nil {
+			memRSS = memInfo.RSS
+			memVMS = memInfo.VMS
+		}
 
 		processes = append(processes, ProcessDetail{
 			PID:        pid,
@@ -420,6 +533,12 @@ func (c *Collector) collectProcessInfo() error {
 			CPUPercent: cpuPercent,
 			MemPercent: memPercent,
 			CreatedAt:  createdAt,
+			NumThreads: numThreads,
+			CmdLine:    cmdLine,
+			PPID:       ppid,
+			Nice:       nice,
+			MemRSS:     memRSS,
+			MemVMS:     memVMS,
 		})
 	}
 

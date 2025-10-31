@@ -6,12 +6,21 @@ A powerful terminal-based system monitoring tool built in Go that provides real-
 
 ## Features
 
+### Core Monitoring
 - **Real-time system metrics**: CPU, memory, disk, network usage, and running processes
+- **Historical data tracking**: Sparklines showing CPU and memory trends over time
+- **Real-time I/O rates**: Network and disk speeds in MB/s (not just cumulative totals)
+- **Comprehensive process details**: Thread count, command line, parent PID, memory breakdown
 - **Interactive UI**: Tab-based navigation with keyboard shortcuts
-- **Process management**: Sort processes by CPU usage, memory usage, PID, or name
+
+### Advanced Features
+- **Process scrolling**: Navigate through hundreds of processes with keyboard/mouse
+- **Process filtering**: Search and filter processes by name, user, or command
+- **Process sorting**: Sort by CPU, memory, PID, or name
 - **Alert system**: Configurable alerts for resource usage thresholds
+- **Mouse support**: Click tabs, scroll with mouse wheel
 - **Visual indicators**: Color-coded metrics showing resource health
-- **Clean interface**: Well-organized layout with proper separation of concerns
+- **Number formatting**: Thousands separators for better readability
 
 ## Installation
 
@@ -54,31 +63,98 @@ sysmon
 
 ### Keyboard Controls
 
+#### General Navigation
 - **Tab / ← →**: Navigate between tabs
-- **1-4**: When on Processes tab, sort by different criteria
-  - **1**: Sort by CPU usage
-  - **2**: Sort by memory usage
-  - **3**: Sort by PID
-  - **4**: Sort by name
 - **r**: Manually refresh data
+- **c**: Toggle compact mode
+- **f**: Toggle fullscreen
+- **s**: Toggle status bar
+- **?**: Show/hide help overlay
 - **q / Esc**: Quit the application
+
+#### Process Table (Processes Tab)
+**Scrolling**:
+- **↑ / k**: Scroll up one line
+- **↓ / j**: Scroll down one line
+- **PgUp / Ctrl+u**: Scroll up one page
+- **PgDn / Ctrl+d**: Scroll down one page
+- **Home / g**: Jump to top
+- **End / G**: Jump to bottom
+
+**Sorting**:
+- **1**: Sort by CPU usage
+- **2**: Sort by memory usage
+- **3**: Sort by PID
+- **4**: Sort by name
+
+### Mouse Controls
+- **Click tabs**: Switch between different views
+- **Mouse wheel**: Scroll through process list
+- **Click anywhere**: Basic interaction support
 
 ## Configuration
 
-By default, the application uses these alert thresholds:
+### Default Alert Thresholds
 - CPU Usage: 85%
 - Memory Usage: 85%
 - Disk Usage: 90%
 - Swap Usage: 80%
 
-You can customize these by editing the configuration file at `~/.config/sysmon/config.json`.
+### Configuration File
+Location: `~/.config/sysmon/config.json`
+
+Example configuration:
+```json
+{
+  "cpu_threshold": 85.0,
+  "memory_threshold": 85.0,
+  "disk_threshold": 90.0,
+  "swap_threshold": 80.0,
+  "refresh_interval_ms": 1000,
+  "max_processes": 15,
+  "max_alerts_to_keep": 100,
+  "default_sorting_mode": "cpu"
+}
+```
+
+### Command Line Options
+```bash
+./sysmon -cpu 90        # Set CPU threshold
+./sysmon -mem 85        # Set memory threshold
+./sysmon -disk 95       # Set disk threshold
+./sysmon -swap 80       # Set swap threshold
+./sysmon -version       # Show version
+./sysmon -help          # Show help
+```
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## What's New in v2.0
+
+### Major Improvements
+- ✅ **Real-time I/O rates** - See actual network/disk speeds, not cumulative totals
+- ✅ **Process scrolling** - Navigate through all processes, not just top 15
+- ✅ **Historical data** - Sparklines showing CPU/memory trends
+- ✅ **Complete process info** - Thread count, command line, parent PID, and more
+- ✅ **Process filtering** - Search and filter processes easily
+- ✅ **Mouse support** - Click tabs and scroll with mouse
+- ✅ **Better error handling** - Graceful degradation, no crashes
+- ✅ **Enhanced UI** - Number formatting, better help, visual indicators
+
+### Bug Fixes
+- Fixed missing history fields (sparklines now work)
+- Fixed missing cardConfig (combined view works)
+- Removed duplicate code
+- Fixed thread count display
+- Improved error resilience
+
+See [CHANGELOG.md](CHANGELOG.md) for complete details.
 
 ## Acknowledgments
 
 - [gopsutil](https://github.com/shirou/gopsutil) for system metrics collection
 - [bubbletea](https://github.com/charmbracelet/bubbletea) for the terminal UI framework
 - [lipgloss](https://github.com/charmbracelet/lipgloss) for terminal styling
+- [bubbles](https://github.com/charmbracelet/bubbles) for TUI components
